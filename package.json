@@ -1,0 +1,9 @@
+{
+  "name": "yolo-media-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "YOLO MEDIA 記事管理ダッシュボード（自動更新）",
+  "scripts": {
+    "dashboard": "node scripts/generate-dashboard.js"
+  }
+}

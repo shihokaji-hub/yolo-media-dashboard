@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YOLO MEDIA 記事管理ダッシュボード</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", Arial, sans-serif;
+    margin: 0; padding: 32px 24px;
+    background: #f1f3f4; color: #202124;
+    line-height: 1.5;
+  }
+  .container { max-width: 1600px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .subtitle { color: #5f6368; font-size: 13px; margin: 0 0 24px; }
+
+  /* ===== Tabs ===== */
+  .tabs { display: flex; border-bottom: 2px solid #d0d7de; margin: 24px 0 0; }
+  .tab {
+    padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 500;
+    color: #5f6368; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  }
+  .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; }
+  .panel { display: none; padding-top: 24px; }
+  .panel.active { display: block; }
+
+  /* ===== Dashboard ===== */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 32px;
+  }
+  .kpi-card {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 16px 12px; text-align: center;
+  }
+  .kpi-label {
+    font-size: 11px; color: #5f6368; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .kpi-value { font-size: 32px; font-weight: 700; line-height: 1; }
+  .cat-section { background: #fff; border-radius: 8px; padding: 20px; }
+  .cat-section h2 { font-size: 16px; margin: 0 0 12px; }
+  .cat-table { width: 100%; max-width: 600px; border-collapse: collapse; }
+  .cat-table th, .cat-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .cat-table th { background: #1a73e8; color: #fff; font-weight: 600; }
+  .cat-table td.num { text-align: right; font-weight: 600; }
+  .cat-table code { background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+
+  /* ===== Data Table ===== */
+  .data-wrap {
+    background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
+    overflow: auto; max-height: calc(100vh - 200px);
+  }
+  table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.data th, table.data td {
+    padding: 10px 12px; border-bottom: 1px solid #e0e0e0;
+    text-align: left; vertical-align: middle; white-space: nowrap;
+  }
+  table.data th {
+    background: #1a73e8; color: #fff; font-weight: 600; font-size: 12px;
+    position: sticky; top: 0; z-index: 1; text-align: center;
+  }
+  table.data tbody tr:nth-child(even) { background: #f8f9fa; }
+  table.data tbody tr:hover { background: #e8f0fe; }
+  td.title-cell {
+    font-weight: 500; max-width: 380px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  td.filepath {
+    width: 260px; max-width: 260px; padding: 6px 10px;
+  }
+  .file-item {
+    display: flex; align-items: center; gap: 6px;
+    font-family: Menlo, Monaco, monospace; font-size: 10px; color: #5f6368;
+    line-height: 1.5; padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.15s;
+  }
+  .file-item:hover { background: #e8f0fe; color: #1a73e8; }
+  .file-item.copied { background: #e6f4ea !important; color: #137333 !important; }
+  .file-item.copied .file-copy-icon::after { content: "✓ コピー済"; margin-left: 2px; font-family: -apple-system, sans-serif; font-size: 10px; }
+  .file-item.copied .file-copy-icon { font-size: 0; }
+  .file-flag { flex-shrink: 0; font-size: 11px; }
+  .file-name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1;
+  }
+  .file-copy-icon {
+    flex-shrink: 0; font-size: 11px; opacity: 0.4;
+    transition: opacity 0.15s;
+  }
+  .file-item:hover .file-copy-icon { opacity: 1; }
+  td.date { color: #5f6368; font-size: 12px; }
+  td a { color: #1a73e8; text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .lang-cell { text-align: center; }
+  .lang-cell.empty, td.empty { color: #c0c0c0; text-align: center; }
+  .canva-link { color: #00c4cc !important; font-weight: 500; }
+  td:last-child { min-width: 130px; text-align: center; }
+
+  /* ===== Status badges ===== */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .b-pub { background: #e6f4ea; color: #137333; }
+  .b-draft { background: #f1f3f4; color: #5f6368; }
+  .b-partial { background: #fef7e0; color: #b06000; }
+  .b-future { background: #e8f0fe; color: #1967d2; }
+  .stale { color: #f57f17; margin-left: 4px; }
+
+  /* ===== Footer ===== */
+  .footer {
+    margin-top: 24px; text-align: right; font-size: 11px;
+    color: #5f6368; font-style: italic;
+  }
+
+  /* ===== Search ===== */
+  .search-bar {
+    margin-bottom: 16px; padding: 12px 16px;
+    background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .search-bar input {
+    flex: 1; padding: 8px 12px; border: 1px solid #d0d7de;
+    border-radius: 4px; font-size: 14px;
+  }
+  .search-bar select {
+    padding: 8px 12px; border: 1px solid #d0d7de;
+    border-radius: 4px; font-size: 14px; background: #fff;
+  }
+  .row-count { color: #5f6368; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>YOLO MEDIA 記事管理ダッシュボード</h1>
+  <p class="subtitle">WordPress と自動同期 / 2026/4/28 17:29:05 時点</p>
+
+  <div class="tabs">
+    <div class="tab active" data-panel="dash">ダッシュボード</div>
+    <div class="tab" data-panel="data">記事一覧</div>
+  </div>
+
+  <!-- ===== Dashboard ===== -->
+  <div id="dash" class="panel active">
+    <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">合計記事</div>
+      <div class="kpi-value" style="color:#1a73e8">29</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">完全公開</div>
+      <div class="kpi-value" style="color:#137333">27</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">部分公開</div>
+      <div class="kpi-value" style="color:#b06000">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">全下書き</div>
+      <div class="kpi-value" style="color:#5f6368">2</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">古記事 🟡</div>
+      <div class="kpi-value" style="color:#f57f17">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">🇯🇵 日本語</div>
+      <div class="kpi-value" style="color:#1565c0">29</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">🇬🇧 英語</div>
+      <div class="kpi-value" style="color:#1565c0">26</div>
+    </div>
+    </div>
+    <div class="cat-section">
+      <h2>カテゴリ別記事数</h2>
+      <table class="cat-table">
+        <thead><tr><th>カテゴリ</th><th>フォルダ名</th><th class="num">記事数</th></tr></thead>
+        <tbody>
+      <tr>
+        <td>Culture &amp; Society</td>
+        <td><code>culture</code></td>
+        <td class="num">12</td>
+      </tr>
+      <tr>
+        <td>Visa &amp; Legal</td>
+        <td><code>visa</code></td>
+        <td class="num">7</td>
+      </tr>
+      <tr>
+        <td>Work &amp; Career</td>
+        <td><code>work</code></td>
+        <td class="num">6</td>
+      </tr>
+      <tr>
+        <td>Living in Japan</td>
+        <td><code>living</code></td>
+        <td class="num">2</td>
+      </tr>
+      <tr>
+        <td>Travel &amp; Explore</td>
+        <td><code>travel</code></td>
+        <td class="num">1</td>
+      </tr>
+      <tr>
+        <td>Family &amp; Life</td>
+        <td><code>family</code></td>
+        <td class="num">1</td>
+      </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== Data Table ===== -->
+  <div id="data" class="panel">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="🔍 タイトル・カテゴリで検索...">
+      <select id="statusFilter">
+        <option value="">全ステータス</option>
+        <option value="✅ 公開">✅ 公開</option>
+        <option value="⚠️ 部分公開">⚠️ 部分公開</option>
+        <option value="📝 下書き">📝 下書き</option>
+        <option value="⏰ 予約投稿">⏰ 予約投稿</option>
+      </select>
+      <span class="row-count" id="rowCount"></span>
+    </div>
+    <div class="data-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>公開日</th>
+            <th>更新日</th>
+            <th>タイトル</th>
+            <th>カテゴリ</th>
+            <th>ステータス</th>
+            <th>🇯🇵 日本語</th><th>🇬🇧 英語</th>
+            <th>ファイル</th>
+            <th>Canva</th>
+          </tr>
+        </thead>
+        <tbody id="dataBody">
+      <tr>
+        <td class="date">2026-04-27</td>
+        <td class="date">2026-04-27</td>
+        <td class="title-cell">経営管理ビザ更新ガイド2026｜5つの審査要件・赤字対応・在留期間1年/3年/5年の取り方を徹底解説</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1430/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1431/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/business-manager-visa-renewal.md" title="クリックでコピー: YOLO Media/visa/business-manager-visa-renewal.md"><span class="file-flag">🇬🇧</span><span class="file-name">business-manager-visa-renewal.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/business-manager-visa-renewal-ja-ja.md" title="クリックでコピー: YOLO Media/visa/business-manager-visa-renewal-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">business-manager-visa-renewal-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHIB6_lxjY/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-27</td>
+        <td class="date">2026-04-27</td>
+        <td class="title-cell">【2026最新】経営管理ビザが大きく変わる｜資本金3,000万円・JLPT N2・常勤職員1名の新要件と、2028年までの経過措置をやさしく解説</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1428/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1429/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/business-manager-visa-guide.md" title="クリックでコピー: YOLO Media/visa/business-manager-visa-guide.md"><span class="file-flag">🇬🇧</span><span class="file-name">business-manager-visa-guide.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/business-manager-visa-guide-ja-ja.md" title="クリックでコピー: YOLO Media/visa/business-manager-visa-guide-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">business-manager-visa-guide-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHIBuXugAI/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-25</td>
+        <td class="date">2026-04-25</td>
+        <td class="title-cell">【2026年4月24日〜】モバイルバッテリー「機内で使うのは禁止」に｜飛行機持ち込み新ルール完全ガイド</td>
+        <td>Travel &amp; Explore</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1419/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1420/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/travel/mobile-battery-flight-rules-2026-ja-ja.md" title="クリックでコピー: YOLO Media/travel/mobile-battery-flight-rules-2026-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">mobile-battery-flight-rules-2026-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/travel/mobile-battery-flight-rules-2026.md" title="クリックでコピー: YOLO Media/travel/mobile-battery-flight-rules-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">mobile-battery-flight-rules-2026.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHuWggikM/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-22</td>
+        <td class="date">2026-04-22</td>
+        <td class="title-cell">特定在留カードのメリット・デメリットを徹底比較！作るべき人・まだ不要な人の判断ポイント</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1387/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1390/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/specified-residence-card-pros-cons-ja-ja.md" title="クリックでコピー: YOLO Media/visa/specified-residence-card-pros-cons-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">specified-residence-card-pros-cons-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/specified-residence-card-pros-cons.md" title="クリックでコピー: YOLO Media/visa/specified-residence-card-pros-cons.md"><span class="file-flag">🇬🇧</span><span class="file-name">specified-residence-card-pros-cons.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHeJ5o8tA/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-22</td>
+        <td class="date">2026-04-22</td>
+        <td class="title-cell">特定在留カードは義務？任意？「作らなきゃダメ？」の不安を法的根拠からスッキリ解消</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1386/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1388/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/specified-residence-card-mandatory-ja-ja.md" title="クリックでコピー: YOLO Media/visa/specified-residence-card-mandatory-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">specified-residence-card-mandatory-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/specified-residence-card-mandatory.md" title="クリックでコピー: YOLO Media/visa/specified-residence-card-mandatory.md"><span class="file-flag">🇬🇧</span><span class="file-name">specified-residence-card-mandatory.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHd1bUUy8/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-22</td>
+        <td class="date">2026-04-22</td>
+        <td class="title-cell">【2026年6月開始】在留カードとマイナンバーカードが一体化！「特定在留カード」のメリット・申請方法をやさしく解説</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1383/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1384/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/residence-mynumber-integration-ja-ja.md" title="クリックでコピー: YOLO Media/visa/residence-mynumber-integration-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">residence-mynumber-integration-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/residence-mynumber-integration.md" title="クリックでコピー: YOLO Media/visa/residence-mynumber-integration.md"><span class="file-flag">🇬🇧</span><span class="file-name">residence-mynumber-integration.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHdhWgLL8/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-21</td>
+        <td class="date">2026-04-22</td>
+        <td class="title-cell">日本のおすすめ赤ちゃんグッズ完全ガイド2026：外国人ママ・パパが絶賛する「神アイテム」と購入場所</td>
+        <td>Family &amp; Life</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1369/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1370/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/family/baby-products-japan.md" title="クリックでコピー: YOLO Media/family/baby-products-japan.md"><span class="file-flag">🇬🇧</span><span class="file-name">baby-products-japan.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/family/baby-products-japan-ja-ja.md" title="クリックでコピー: YOLO Media/family/baby-products-japan-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">baby-products-japan-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFtkB-LNA/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-21</td>
+        <td class="date">2026-04-21</td>
+        <td class="title-cell">特定技能「外食業」の新規受け入れが停止｜ビザはどうなる？状況別の対応ガイド（2026年最新）</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1353/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1354/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/ssw-food-service-suspended.md" title="クリックでコピー: YOLO Media/visa/ssw-food-service-suspended.md"><span class="file-flag">🇬🇧</span><span class="file-name">ssw-food-service-suspended.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/ssw-food-service-suspended-ja-ja.md" title="クリックでコピー: YOLO Media/visa/ssw-food-service-suspended-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">ssw-food-service-suspended-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHcFimkOs/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-20</td>
+        <td class="date">2026-04-21</td>
+        <td class="title-cell">一生に一度は生で見たい！絶対に外さない「大相撲」の楽しみ方</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/627/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/623/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/sumo-wrestling-guide.md" title="クリックでコピー: YOLO Media/culture/sumo-wrestling-guide.md"><span class="file-flag">🇬🇧</span><span class="file-name">sumo-wrestling-guide.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/sumo-wrestling-guide-ja-ja.md" title="クリックでコピー: YOLO Media/culture/sumo-wrestling-guide-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">sumo-wrestling-guide-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFgaAOmIc/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-20</td>
+        <td class="date">2026-04-20</td>
+        <td class="title-cell">【速報】三陸沖M7.5地震による交通情報まとめ（2026年4月20日 18時台 更新）：新幹線・在来線・空港・高速道路と在日外国人向け行動ガイド</td>
+        <td>Living in Japan</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1268/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1269/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/living/iwate-earthquake-transit-april-2026.md" title="クリックでコピー: YOLO Media/living/iwate-earthquake-transit-april-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">iwate-earthquake-transit-april-2026.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/living/iwate-earthquake-transit-april-2026-ja-ja.md" title="クリックでコピー: YOLO Media/living/iwate-earthquake-transit-april-2026-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">iwate-earthquake-transit-april-2026-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHYXCjK2o/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-20</td>
+        <td class="date">2026-04-20</td>
+        <td class="title-cell">【速報】岩手沖でM7.4の地震 津波警報発表（2026年4月20日）：在日外国人向けの最新情報と行動まとめ</td>
+        <td>Living in Japan</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1258/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1259/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/living/iwate-earthquake-tsunami-april-2026.md" title="クリックでコピー: YOLO Media/living/iwate-earthquake-tsunami-april-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">iwate-earthquake-tsunami-april-2026.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/living/iwate-earthquake-tsunami-april-2026-ja-ja.md" title="クリックでコピー: YOLO Media/living/iwate-earthquake-tsunami-april-2026-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">iwate-earthquake-tsunami-april-2026-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHYAlgq0g/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-20</td>
+        <td class="date">2026-04-21</td>
+        <td class="title-cell">【2027/2028卒】留学生の就職活動はいつから？早期選考スケジュール完全版</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1130/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1131/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/japan-job-hunting-schedule-2027-2028.md" title="クリックでコピー: YOLO Media/work/japan-job-hunting-schedule-2027-2028.md"><span class="file-flag">🇬🇧</span><span class="file-name">japan-job-hunting-schedule-2027-2028.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/japan-job-hunting-schedule-2027-2028-ja-ja.md" title="クリックでコピー: YOLO Media/work/japan-job-hunting-schedule-2027-2028-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">japan-job-hunting-schedule-2027-2028-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHG_9OGEV4/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-19</td>
+        <td class="date">2026-04-19</td>
+        <td class="title-cell">【留学生向け】日本の就活の筆記試験って何？SPI・WEBテスト完全攻略ガイド</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1134/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1135/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/spi-webtest-preparation-roadmap-ja-ja.md" title="クリックでコピー: YOLO Media/work/spi-webtest-preparation-roadmap-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">spi-webtest-preparation-roadmap-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/spi-webtest-preparation-roadmap.md" title="クリックでコピー: YOLO Media/work/spi-webtest-preparation-roadmap.md"><span class="file-flag">🇬🇧</span><span class="file-name">spi-webtest-preparation-roadmap.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHG-mJiG1I/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-19</td>
+        <td class="date">2026-04-19</td>
+        <td class="title-cell">日本語の履歴書の書き方ガイド｜ガクチカ・志望動機・自己PRまで（2026年版）</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1132/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1133/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/resume-gakuchika-guide-for-international-students-ja-ja.md" title="クリックでコピー: YOLO Media/work/resume-gakuchika-guide-for-international-students-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">resume-gakuchika-guide-for-international-students-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/resume-gakuchika-guide-for-international-students.md" title="クリックでコピー: YOLO Media/work/resume-gakuchika-guide-for-international-students.md"><span class="file-flag">🇬🇧</span><span class="file-name">resume-gakuchika-guide-for-international-students.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHG_pkblt4/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-19</td>
+        <td class="date">2026-04-19</td>
+        <td class="title-cell">「なぜ日本で働きたいのですか？」面接での答え方｜留学生向け・例文つき</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1128/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1129/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/interview-questions-why-japan-tips-ja-ja.md" title="クリックでコピー: YOLO Media/work/interview-questions-why-japan-tips-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">interview-questions-why-japan-tips-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/interview-questions-why-japan-tips.md" title="クリックでコピー: YOLO Media/work/interview-questions-why-japan-tips.md"><span class="file-flag">🇬🇧</span><span class="file-name">interview-questions-why-japan-tips.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td class="empty">—</td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-19</td>
+        <td class="date">2026-04-19</td>
+        <td class="title-cell">外国人留学生の就活面接でよく聞かれる質問10選｜回答例・NG例つき【2027卒】</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1126/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1127/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/foreign-student-interview-questions-ja-ja.md" title="クリックでコピー: YOLO Media/work/foreign-student-interview-questions-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">foreign-student-interview-questions-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/foreign-student-interview-questions.md" title="クリックでコピー: YOLO Media/work/foreign-student-interview-questions.md"><span class="file-flag">🇬🇧</span><span class="file-name">foreign-student-interview-questions.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHEJTtruE/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-19</td>
+        <td class="date">2026-04-19</td>
+        <td class="title-cell">留学生の就活が間に合わない！特定活動ビザで卒業後も最長1年滞在する全手順</td>
+        <td>Work &amp; Career</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1124/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1125/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/work/designated-activities-visa-job-hunting-ja-ja.md" title="クリックでコピー: YOLO Media/work/designated-activities-visa-job-hunting-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">designated-activities-visa-job-hunting-ja-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/work/designated-activities-visa-job-hunting.md" title="クリックでコピー: YOLO Media/work/designated-activities-visa-job-hunting.md"><span class="file-flag">🇬🇧</span><span class="file-name">designated-activities-visa-job-hunting.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHHECvytRg/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-14</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">ビザ更新・永住の手数料が値上げで何十万円になるって本当？いつから始まるのかと今すぐ準備したいこと (2026)</td>
+        <td>Visa &amp; Legal</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/1114/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1115/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/visa/visa-fee-increase-2026.md" title="クリックでコピー: YOLO Media/visa/visa-fee-increase-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">visa-fee-increase-2026.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/visa/visa-fee-increase-2026-ja-ja.md" title="クリックでコピー: YOLO Media/visa/visa-fee-increase-2026-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">visa-fee-increase-2026-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHGPkjXO44/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-13</td>
+        <td class="date">2026-04-14</td>
+        <td class="title-cell">【テスト】見出しデザイン4案 比較用</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-draft">📝 下書き</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/?p=1095" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell empty">—</td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/heading-design-comparison-ja-ja.md" title="クリックでコピー: YOLO Media/culture/heading-design-comparison-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">heading-design-comparison-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td class="empty">—</td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-13</td>
+        <td class="date">2026-04-13</td>
+        <td class="title-cell">【テスト】見出しデザイン確認用ダミー記事</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-draft">📝 下書き</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/?p=1094" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell empty">—</td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/heading-design-test-ja-ja.md" title="クリックでコピー: YOLO Media/culture/heading-design-test-ja-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">heading-design-test-ja-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td class="empty">—</td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-13</td>
+        <td class="date">2026-04-21</td>
+        <td class="title-cell">もう迷わない！神社とお寺の見分け方と美しい参拝作法</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/642/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/1349/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/shrine-vs-temple-etiquette.md" title="クリックでコピー: YOLO Media/culture/shrine-vs-temple-etiquette.md"><span class="file-flag">🇬🇧</span><span class="file-name">shrine-vs-temple-etiquette.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e3%82%82%e3%81%86%e8%bf%b7%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%81%e7%a5%9e%e7%a4%be%e3%81%a8%e3%81%8a%e5%af%ba%e3%81%ae%e8%a6%8b%e5%88%86%e3%81%91%e6%96%b9%e3%81%a8%e7%be%8e%e3%81%97%e3%81%84%e5%8f%82-ja.md" title="クリックでコピー: YOLO Media/culture/%e3%82%82%e3%81%86%e8%bf%b7%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%81%e7%a5%9e%e7%a4%be%e3%81%a8%e3%81%8a%e5%af%ba%e3%81%ae%e8%a6%8b%e5%88%86%e3%81%91%e6%96%b9%e3%81%a8%e7%be%8e%e3%81%97%e3%81%84%e5%8f%82-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e3%82%82%e3%81%86%e8%bf%b7%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%81%e7%a5%9e%e7%a4%be%e3%81%a8%e3%81%8a%e5%af%ba%e3%81%ae%e8%a6%8b%e5%88%86%e3%81%91%e6%96%b9%e3%81%a8%e7%be%8e%e3%81%97%e3%81%84%e5%8f%82-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFgd-hJtk/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-13</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">なぜ日本人は「No」と言わない？建前と本音の正解と攻略法</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/635/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell empty">—</td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/%e3%81%aa%e3%81%9c%e6%97%a5%e6%9c%ac%e4%ba%ba%e3%81%af%e3%80%8cno%e3%80%8d%e3%81%a8%e8%a8%80%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%9f%e5%bb%ba%e5%89%8d%e3%81%a8%e6%9c%ac%e9%9f%b3%e3%81%ae%e6%ad%a3%e8%a7%a3-ja.md" title="クリックでコピー: YOLO Media/culture/%e3%81%aa%e3%81%9c%e6%97%a5%e6%9c%ac%e4%ba%ba%e3%81%af%e3%80%8cno%e3%80%8d%e3%81%a8%e8%a8%80%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%9f%e5%bb%ba%e5%89%8d%e3%81%a8%e6%9c%ac%e9%9f%b3%e3%81%ae%e6%ad%a3%e8%a7%a3-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e3%81%aa%e3%81%9c%e6%97%a5%e6%9c%ac%e4%ba%ba%e3%81%af%e3%80%8cno%e3%80%8d%e3%81%a8%e8%a8%80%e3%82%8f%e3%81%aa%e3%81%84%ef%bc%9f%e5%bb%ba%e5%89%8d%e3%81%a8%e6%9c%ac%e9%9f%b3%e3%81%ae%e6%ad%a3%e8%a7%a3-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFgaUFgsk/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-09</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">春の花見から冬のお正月まで！外国人が1年を満喫する日本の年中行事・季節のイベント</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/616/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/603/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/%e6%98%a5%e3%81%ae%e8%8a%b1%e8%a6%8b%e3%81%8b%e3%82%89%e5%86%ac%e3%81%ae%e3%81%8a%e6%ad%a3%e6%9c%88%e3%81%be%e3%81%a7%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c1%e5%b9%b4%e3%82%92%e6%ba%80%e5%96%ab-ja.md" title="クリックでコピー: YOLO Media/culture/%e6%98%a5%e3%81%ae%e8%8a%b1%e8%a6%8b%e3%81%8b%e3%82%89%e5%86%ac%e3%81%ae%e3%81%8a%e6%ad%a3%e6%9c%88%e3%81%be%e3%81%a7%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c1%e5%b9%b4%e3%82%92%e6%ba%80%e5%96%ab-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e6%98%a5%e3%81%ae%e8%8a%b1%e8%a6%8b%e3%81%8b%e3%82%89%e5%86%ac%e3%81%ae%e3%81%8a%e6%ad%a3%e6%9c%88%e3%81%be%e3%81%a7%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c1%e5%b9%b4%e3%82%92%e6%ba%80%e5%96%ab-ja.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/experience-japans-four-seasons-a-guide-to-annual-traditions-seasonal-events.md" title="クリックでコピー: YOLO Media/culture/experience-japans-four-seasons-a-guide-to-annual-traditions-seasonal-events.md"><span class="file-flag">🇬🇧</span><span class="file-name">experience-japans-four-seasons-a-guide-to-annual-traditions-seasonal-events.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFgCPp7zs/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-09</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">アニメ好き必見！外国人が体験すべきディープな日本のオタク文化（聖地巡礼・秋葉原）</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/600/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/595/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/a-must-see-for-anime-fans-deep-japanese-otaku-culture-experience-akihabara-pilgrimage.md" title="クリックでコピー: YOLO Media/culture/a-must-see-for-anime-fans-deep-japanese-otaku-culture-experience-akihabara-pilgrimage.md"><span class="file-flag">🇬🇧</span><span class="file-name">a-must-see-for-anime-fans-deep-japanese-otaku-culture-experience-akihabara-pilgrimage.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e3%82%a2%e3%83%8b%e3%83%a1%e5%a5%bd%e3%81%8d%e5%bf%85%e8%a6%8b%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e4%bd%93%e9%a8%93%e3%81%99%e3%81%b9%e3%81%8d%e3%83%87%e3%82%a3%e3%83%bc%e3%83%97%e3%81%aa-ja.md" title="クリックでコピー: YOLO Media/culture/%e3%82%a2%e3%83%8b%e3%83%a1%e5%a5%bd%e3%81%8d%e5%bf%85%e8%a6%8b%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e4%bd%93%e9%a8%93%e3%81%99%e3%81%b9%e3%81%8d%e3%83%87%e3%82%a3%e3%83%bc%e3%83%97%e3%81%aa-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e3%82%a2%e3%83%8b%e3%83%a1%e5%a5%bd%e3%81%8d%e5%bf%85%e8%a6%8b%ef%bc%81%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e4%bd%93%e9%a8%93%e3%81%99%e3%81%b9%e3%81%8d%e3%83%87%e3%82%a3%e3%83%bc%e3%83%97%e3%81%aa-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFf9Bk_OQ/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-07</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">タトゥーがあっても大丈夫？外国人が安心して楽しめる温泉マナーと入浴ルール</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/562/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/559/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/safe-for-tattoos-onsen-etiquette-and-bathing-rules-for-foreigners-to-enjoy-with-peace-of-mind.md" title="クリックでコピー: YOLO Media/culture/safe-for-tattoos-onsen-etiquette-and-bathing-rules-for-foreigners-to-enjoy-with-peace-of-mind.md"><span class="file-flag">🇬🇧</span><span class="file-name">safe-for-tattoos-onsen-etiquette-and-bathing-rules-for-foreigners-to-enjoy-with-peace-of-mind.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e3%82%bf%e3%83%88%e3%82%a5%e3%83%bc%e3%81%8c%e3%81%82%e3%81%a3%e3%81%a6%e3%82%82%e5%a4%a7%e4%b8%88%e5%a4%ab%ef%bc%9f%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e5%ae%89%e5%bf%83%e3%81%97%e3%81%a6%e6%a5%bd-ja.md" title="クリックでコピー: YOLO Media/culture/%e3%82%bf%e3%83%88%e3%82%a5%e3%83%bc%e3%81%8c%e3%81%82%e3%81%a3%e3%81%a6%e3%82%82%e5%a4%a7%e4%b8%88%e5%a4%ab%ef%bc%9f%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e5%ae%89%e5%bf%83%e3%81%97%e3%81%a6%e6%a5%bd-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e3%82%bf%e3%83%88%e3%82%a5%e3%83%bc%e3%81%8c%e3%81%82%e3%81%a3%e3%81%a6%e3%82%82%e5%a4%a7%e4%b8%88%e5%a4%ab%ef%bc%9f%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%8c%e5%ae%89%e5%bf%83%e3%81%97%e3%81%a6%e6%a5%bd-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFgDd1YLk/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-07</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">日本の祭りカレンダー：外国人におすすめの有名・穴場イベント25選 (2026-2027)</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/553/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/548/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/japan-festival-calendar-the-ultimate-guide-to-25-famous-hidden-matsuri-2026-2027.md" title="クリックでコピー: YOLO Media/culture/japan-festival-calendar-the-ultimate-guide-to-25-famous-hidden-matsuri-2026-2027.md"><span class="file-flag">🇬🇧</span><span class="file-name">japan-festival-calendar-the-ultimate-guide-to-25-famous-hidden-matsuri-2026-2027.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-2-ja.md" title="クリックでコピー: YOLO Media/culture/%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-2-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-2-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFfnojigE/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-07</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">職場で一目置かれる！日本のおみやげ・贈り物文化の正解とマナー</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/545/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/541/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/be-respected-at-work-the-ultimate-guide-to-japanese-gift-giving-omiyage-etiquette-2026.md" title="クリックでコピー: YOLO Media/culture/be-respected-at-work-the-ultimate-guide-to-japanese-gift-giving-omiyage-etiquette-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">be-respected-at-work-the-ultimate-guide-to-japanese-gift-giving-omiyage-etiquette-2026.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-ja.md" title="クリックでコピー: YOLO Media/culture/%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e8%81%b7%e5%a0%b4%e3%81%a7%e4%b8%80%e7%9b%ae%e7%bd%ae%e3%81%8b%e3%82%8c%e3%82%8b%ef%bc%81%e6%97%a5%e6%9c%ac%e3%81%ae%e3%81%8a%e3%81%bf%e3%82%84%e3%81%92%e3%83%bb%e8%b4%88%e3%82%8a%e7%89%a9%e6%96%87-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHFfcUS5Jw/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-03</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">外国人のための日本史入門：今の日本のカルチャーがまるごとわかる歴史の話（2026年版）</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/517/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/530/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/a-brief-history-of-japan-for-expats-understanding-modern-japanese-culture-through-history-2026.md" title="クリックでコピー: YOLO Media/culture/a-brief-history-of-japan-for-expats-understanding-modern-japanese-culture-through-history-2026.md"><span class="file-flag">🇬🇧</span><span class="file-name">a-brief-history-of-japan-for-expats-understanding-modern-japanese-culture-through-history-2026.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%ae%e3%81%9f%e3%82%81%e3%81%ae%e6%97%a5%e6%9c%ac%e5%8f%b2%e5%85%a5%e9%96%80%ef%bc%9a%e4%bb%8a%e3%81%ae%e6%97%a5%e6%9c%ac%e3%81%ae%e3%82%ab%e3%83%ab%e3%83%81%e3%83%a3-ja.md" title="クリックでコピー: YOLO Media/culture/%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%ae%e3%81%9f%e3%82%81%e3%81%ae%e6%97%a5%e6%9c%ac%e5%8f%b2%e5%85%a5%e9%96%80%ef%bc%9a%e4%bb%8a%e3%81%ae%e6%97%a5%e6%9c%ac%e3%81%ae%e3%82%ab%e3%83%ab%e3%83%81%e3%83%a3-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e5%a4%96%e5%9b%bd%e4%ba%ba%e3%81%ae%e3%81%9f%e3%82%81%e3%81%ae%e6%97%a5%e6%9c%ac%e5%8f%b2%e5%85%a5%e9%96%80%ef%bc%9a%e4%bb%8a%e3%81%ae%e6%97%a5%e6%9c%ac%e3%81%ae%e3%82%ab%e3%83%ab%e3%83%81%e3%83%a3-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHE9rXvmnY/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+      <tr>
+        <td class="date">2026-04-02</td>
+        <td class="date">2026-04-15</td>
+        <td class="title-cell">芸者と舞妓の違いを徹底解説！やりがちなNG行動には罰金の可能性も（2026年版）</td>
+        <td>Culture &amp; Society</td>
+        <td><span class="badge b-pub">✅ 公開</span></td>
+        <td class="lang-cell"><a href="https://media.yolo-japan.com/ja/474/" target="_blank" rel="noopener">🇯🇵 日本語</a></td><td class="lang-cell"><a href="https://media.yolo-japan.com/en/536/" target="_blank" rel="noopener">🇬🇧 英語</a></td>
+        <td class="filepath"><div class="file-item" data-copy="YOLO Media/culture/geisha-maiko-complete-guide-2.md" title="クリックでコピー: YOLO Media/culture/geisha-maiko-complete-guide-2.md"><span class="file-flag">🇬🇧</span><span class="file-name">geisha-maiko-complete-guide-2.md</span><span class="file-copy-icon">📋</span></div><div class="file-item" data-copy="YOLO Media/culture/%e8%8a%b8%e8%80%85%e3%81%a8%e8%88%9e%e5%a6%93%e3%81%ae%e9%81%95%e3%81%84%e3%82%92%e5%be%b9%e5%ba%95%e8%a7%a3%e8%aa%ac%ef%bc%81%e3%82%84%e3%82%8a%e3%81%8c%e3%81%a1%e3%81%aang%e8%a1%8c%e5%8b%95%e3%81%ab-ja.md" title="クリックでコピー: YOLO Media/culture/%e8%8a%b8%e8%80%85%e3%81%a8%e8%88%9e%e5%a6%93%e3%81%ae%e9%81%95%e3%81%84%e3%82%92%e5%be%b9%e5%ba%95%e8%a7%a3%e8%aa%ac%ef%bc%81%e3%82%84%e3%82%8a%e3%81%8c%e3%81%a1%e3%81%aang%e8%a1%8c%e5%8b%95%e3%81%ab-ja.md"><span class="file-flag">🇯🇵</span><span class="file-name">%e8%8a%b8%e8%80%85%e3%81%a8%e8%88%9e%e5%a6%93%e3%81%ae%e9%81%95%e3%81%84%e3%82%92%e5%be%b9%e5%ba%95%e8%a7%a3%e8%aa%ac%ef%bc%81%e3%82%84%e3%82%8a%e3%81%8c%e3%81%a1%e3%81%aang%e8%a1%8c%e5%8b%95%e3%81%ab-ja.md</span><span class="file-copy-icon">📋</span></div></td>
+        <td><a href="https://www.canva.com/design/DAHE9-QF9-o/view" target="_blank" rel="noopener" class="canva-link">🎨 Canvaで開く</a></td>
+      </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="footer">最終更新: 2026/4/28 17:29:05 (Asia/Tokyo)</p>
+</div>
+
+<script>
+  // タブ切替
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.panel).classList.add('active');
+    });
+  });
+
+  // 検索・フィルタ
+  const searchInput = document.getElementById('searchInput');
+  const statusFilter = document.getElementById('statusFilter');
+  const rowCount = document.getElementById('rowCount');
+  const rows = Array.from(document.querySelectorAll('#dataBody tr'));
+
+  function applyFilter() {
+    const q = searchInput.value.toLowerCase();
+    const s = statusFilter.value;
+    let visible = 0;
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const matchQ = !q || text.includes(q);
+      const matchS = !s || row.textContent.includes(s);
+      const show = matchQ && matchS;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    rowCount.textContent = visible + ' / ' + rows.length + ' 件';
+  }
+
+  searchInput.addEventListener('input', applyFilter);
+  statusFilter.addEventListener('change', applyFilter);
+  applyFilter();
+
+  // ファイルパス クリックでコピー
+  document.addEventListener('click', e => {
+    const item = e.target.closest('.file-item');
+    if (!item) return;
+    const path = item.dataset.copy;
+    if (!path) return;
+    navigator.clipboard.writeText(path).then(() => {
+      item.classList.add('copied');
+      setTimeout(() => item.classList.remove('copied'), 1500);
+    }).catch(() => {
+      // フォールバック: 古いブラウザ用
+      const ta = document.createElement('textarea');
+      ta.value = path;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      document.body.removeChild(ta);
+      item.classList.add('copied');
+      setTimeout(() => item.classList.remove('copied'), 1500);
+    });
+  });
+</script>
+</body>
+</html>
