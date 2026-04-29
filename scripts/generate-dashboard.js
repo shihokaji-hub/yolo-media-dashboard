@@ -351,6 +351,7 @@ function computePostingStats(groups) {
       isFuture,
       isToday,
       isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+      dayOfWeek,
     });
   }
 
@@ -412,21 +413,35 @@ function renderHtml(groups, langs, stats) {
     </div>`;
   }).join('');
 
-  const dayBars = postingStats.days.map(d => {
+  // 日別投稿数: カレンダーグリッド形式
+  const weekHeaders = ['日', '月', '火', '水', '木', '金', '土'];
+  const dayCalHeader = weekHeaders.map((w, i) => {
+    const cls = i === 0 ? 'weekend-sun' : i === 6 ? 'weekend-sat' : '';
+    return `<div class="day-cal-head ${cls}">${w}</div>`;
+  }).join('');
+  const startWeekday = postingStats.days[0] ? postingStats.days[0].dayOfWeek : 0;
+  const leadingEmpties = Array(startWeekday).fill('<div class="day-cal-cell empty-cell"></div>').join('');
+  const dayCalCells = postingStats.days.map(d => {
+    const hasPosts = d.count > 0;
     const cls = [
+      'day-cal-cell',
       d.isToday ? 'today' : '',
       d.isFuture ? 'future' : '',
-      d.isWeekend ? 'weekend' : '',
+      hasPosts ? 'has-posts' : '',
+      hasPosts ? 'clickable' : '',
     ].filter(Boolean).join(' ');
-    return `
-    <div class="chart-bar-item day-bar ${cls}" title="${d.key}: ${d.count}本${d.isFuture ? '（未来）' : ''}">
-      <div class="chart-bar-wrap">
-        <div class="chart-bar-value-small">${d.count || ''}</div>
-        <div class="chart-bar ${d.count === 0 ? 'empty' : ''} ${d.isFuture ? 'future-bar' : ''}" style="height: ${d.count / maxDay * 100}%"></div>
-      </div>
-      <div class="chart-bar-label">${d.label}</div>
+    const dayNumCls = d.dayOfWeek === 0 ? 'weekend-sun' : d.dayOfWeek === 6 ? 'weekend-sat' : '';
+    const titleAttr = hasPosts
+      ? `${d.key}: ${d.count}本${d.isFuture ? '（予定）' : ''} — クリックで記事一覧表示`
+      : `${d.key}: ${d.count}本${d.isFuture ? '（予定/未来）' : ''}`;
+    return `<div class="${cls}" data-date="${d.key}" title="${titleAttr}">
+      <div class="day-num ${dayNumCls}">${d.label}</div>
+      <div class="day-count">${hasPosts ? d.count : ''}</div>
     </div>`;
   }).join('');
+  const dayCalendar = `
+    <div class="day-calendar">${dayCalHeader}${leadingEmpties}${dayCalCells}</div>
+  `;
 
   const langKpis = langs.map(lang => {
     const cfg = LANG_CONFIG[lang] || { label: lang, emoji: '🌐' };
@@ -696,7 +711,43 @@ function renderHtml(groups, langs, stats) {
   /* 未来の月 */
   .chart-bar-item.future .chart-bar { background: #e8eaed; opacity: 0.4; }
   .chart-bar-item.future .chart-bar-label { color: #b0b0b0; }
-  /* 日別 */
+  /* ===== Day Calendar ===== */
+  .day-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .day-cal-head { font-size: 11px; color: #5f6368; text-align: center; padding: 6px 0 4px; font-weight: 600; }
+  .day-cal-head.weekend-sun { color: #d33; }
+  .day-cal-head.weekend-sat { color: #1a73e8; }
+  .day-cal-cell {
+    background: #fff; border: 1px solid #e8eaed; border-radius: 6px;
+    min-height: 64px; padding: 6px 8px;
+    display: flex; flex-direction: column; gap: 2px;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .day-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+  .day-cal-cell.empty-cell { background: transparent; border: none; min-height: 0; }
+  .day-cal-cell.empty-cell:hover { transform: none; box-shadow: none; }
+  .day-cal-cell.future { background: #fafbfc; }
+  .day-cal-cell.today { border: 2px solid #f4511e; background: #fff7f3; padding: 5px 7px; }
+  .day-cal-cell .day-num { font-size: 11px; color: #5f6368; font-weight: 500; }
+  .day-cal-cell .day-num.weekend-sun { color: #d33; }
+  .day-cal-cell .day-num.weekend-sat { color: #1a73e8; }
+  .day-cal-cell.today .day-num { color: #f4511e; font-weight: 700; }
+  .day-cal-cell.future .day-num { color: #b0b0b0; }
+  .day-cal-cell .day-count {
+    font-size: 22px; font-weight: 700; color: #1a73e8;
+    text-align: center; line-height: 1; margin-top: auto;
+  }
+  .day-cal-cell.has-posts { background: linear-gradient(180deg, #e8f0fe 0%, #fff 60%); border-color: #aecbfa; }
+  .day-cal-cell.future.has-posts { background: linear-gradient(180deg, #fef7e0 0%, #fff 60%); border-color: #fcd34d; }
+  .day-cal-cell.future.has-posts .day-count { color: #b06000; }
+  .day-cal-cell.today.has-posts .day-count { color: #f4511e; }
+  .day-cal-cell.clickable { cursor: pointer; }
+  .day-cal-cell.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(26,115,232,0.18); border-color: #1a73e8; }
+  .date-filter-chip { display: none; align-items: center; gap: 6px; padding: 4px 10px; background: #fef7e0; color: #b06000; border-radius: 12px; font-size: 12px; font-weight: 500; }
+  .date-filter-chip.active { display: inline-flex; }
+  .date-filter-chip .clear { cursor: pointer; font-weight: bold; padding: 0 2px; }
+  .date-filter-chip .clear:hover { color: #d33; }
+
+  /* 日別 (旧棒グラフ用、互換) */
   .day-bar .chart-bar { width: 95%; }
   .day-bar.weekend .chart-bar-label { color: #d33; }
   .day-bar.today .chart-bar {
@@ -715,14 +766,27 @@ function renderHtml(groups, langs, stats) {
     background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
     display: flex; gap: 12px; align-items: center;
   }
-  .search-bar input {
+  .search-bar input[type="text"] {
     flex: 1; padding: 8px 12px; border: 1px solid #d0d7de;
     border-radius: 4px; font-size: 14px;
+  }
+  .search-bar input[type="date"] {
+    padding: 7px 10px; border: 1px solid #d0d7de;
+    border-radius: 4px; font-size: 13px; background: #fff; color: #202124;
+    font-family: inherit;
   }
   .search-bar select {
     padding: 8px 12px; border: 1px solid #d0d7de;
     border-radius: 4px; font-size: 14px; background: #fff;
   }
+  .date-range { display: inline-flex; align-items: center; gap: 6px; }
+  .date-sep { color: #5f6368; font-size: 12px; }
+  .date-reset-btn {
+    padding: 4px 10px; border: 1px solid #d0d7de;
+    border-radius: 4px; font-size: 14px; background: #fff;
+    cursor: pointer; color: #5f6368; line-height: 1;
+  }
+  .date-reset-btn:hover { background: #f1f3f4; color: #d33; border-color: #d33; }
   .row-count { color: #5f6368; font-size: 12px; }
 </style>
 </head>
@@ -785,9 +849,8 @@ function renderHtml(groups, langs, stats) {
 
     <div class="chart-section">
       <h2>📆 日別投稿数（今月）</h2>
-      <p class="chart-sub">${(() => { const [y, m] = postingStats.days[0].key.split('-'); return `${y}年${parseInt(m, 10)}月`; })()} 1日〜月末（オレンジ=今日）</p>
-      <div class="chart-bar-container daily">${dayBars}
-      </div>
+      <p class="chart-sub">${(() => { const [y, m] = postingStats.days[0].key.split('-'); return `${y}年${parseInt(m, 10)}月`; })()}（オレンジ枠=今日 / 青=投稿済 / 黄=予定）</p>
+      ${dayCalendar}
     </div>
   </div>
 
@@ -805,7 +868,14 @@ function renderHtml(groups, langs, stats) {
       <select id="categoryFilterSelect">
         <option value="">全カテゴリ</option>
       </select>
+      <span class="date-range">
+        <input type="date" id="dateFromInput" title="公開日: From">
+        <span class="date-sep">〜</span>
+        <input type="date" id="dateToInput" title="公開日: To">
+        <button type="button" id="dateFilterReset" class="date-reset-btn" title="日付クリア">×</button>
+      </span>
       <span class="cat-filter-chip" id="catFilterChip">カテゴリ: <span id="catFilterLabel"></span><span class="clear" id="catFilterClear" title="クリア">×</span></span>
+      <span class="date-filter-chip" id="dateFilterChip">📆 公開日: <span id="dateFilterLabel"></span><span class="clear" id="dateFilterClear" title="クリア">×</span></span>
       <span class="row-count" id="rowCount"></span>
     </div>
     <div class="data-wrap">
@@ -850,8 +920,16 @@ function renderHtml(groups, langs, stats) {
   const catFilterLabel = document.getElementById('catFilterLabel');
   const catFilterClear = document.getElementById('catFilterClear');
   const categoryFilterSelect = document.getElementById('categoryFilterSelect');
+  const dateFilterChip = document.getElementById('dateFilterChip');
+  const dateFilterLabel = document.getElementById('dateFilterLabel');
+  const dateFilterClear = document.getElementById('dateFilterClear');
+  const dateFromInput = document.getElementById('dateFromInput');
+  const dateToInput = document.getElementById('dateToInput');
+  const dateFilterReset = document.getElementById('dateFilterReset');
   const rows = Array.from(document.querySelectorAll('#dataBody tr'));
   let categoryFilter = '';
+  let dateFrom = '';
+  let dateTo = '';
 
   // 記事一覧のカテゴリ列からユニーク値を抽出してドロップダウンに投入
   const uniqueCats = Array.from(new Set(rows.map(r => r.cells[3] ? r.cells[3].textContent.trim() : '').filter(Boolean))).sort();
@@ -868,10 +946,13 @@ function renderHtml(groups, langs, stats) {
     rows.forEach(row => {
       const text = row.textContent.toLowerCase();
       const catCell = row.cells[3] ? row.cells[3].textContent.trim() : '';
+      const dateCell = row.cells[0] ? row.cells[0].textContent.trim() : '';
       const matchQ = !q || text.includes(q);
       const matchS = !s || row.textContent.includes(s);
       const matchC = !categoryFilter || catCell === categoryFilter;
-      const show = matchQ && matchS && matchC;
+      const matchFrom = !dateFrom || (dateCell && dateCell >= dateFrom);
+      const matchTo = !dateTo || (dateCell && dateCell <= dateTo);
+      const show = matchQ && matchS && matchC && matchFrom && matchTo;
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
@@ -884,6 +965,18 @@ function renderHtml(groups, langs, stats) {
       catFilterChip.classList.remove('active');
       if (categoryFilterSelect.value !== '') categoryFilterSelect.value = '';
     }
+    if (dateFrom || dateTo) {
+      let label;
+      if (dateFrom && dateTo) label = dateFrom === dateTo ? dateFrom : (dateFrom + ' 〜 ' + dateTo);
+      else if (dateFrom) label = dateFrom + ' 以降';
+      else label = dateTo + ' 以前';
+      dateFilterLabel.textContent = label;
+      dateFilterChip.classList.add('active');
+    } else {
+      dateFilterChip.classList.remove('active');
+    }
+    if (dateFromInput.value !== dateFrom) dateFromInput.value = dateFrom;
+    if (dateToInput.value !== dateTo) dateToInput.value = dateTo;
   }
 
   searchInput.addEventListener('input', applyFilter);
@@ -895,6 +988,38 @@ function renderHtml(groups, langs, stats) {
   catFilterClear.addEventListener('click', () => {
     categoryFilter = '';
     applyFilter();
+  });
+  dateFilterClear.addEventListener('click', () => {
+    dateFrom = ''; dateTo = '';
+    applyFilter();
+  });
+  dateFromInput.addEventListener('change', () => {
+    dateFrom = dateFromInput.value;
+    applyFilter();
+  });
+  dateToInput.addEventListener('change', () => {
+    dateTo = dateToInput.value;
+    applyFilter();
+  });
+  dateFilterReset.addEventListener('click', () => {
+    dateFrom = ''; dateTo = '';
+    applyFilter();
+  });
+
+  // カレンダーセルクリック → 記事一覧タブへ切替＋その日付の単日範囲で絞り込み
+  document.querySelectorAll('.day-cal-cell.clickable').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const date = cell.dataset.date || '';
+      dateFrom = date;
+      dateTo = date;
+      categoryFilter = ''; // 日付フィルタを優先（カテゴリは解除）
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('.tab[data-panel="data"]').classList.add('active');
+      document.getElementById('data').classList.add('active');
+      applyFilter();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
   });
 
   // カテゴリ行クリック → 記事一覧タブへ切替＋カテゴリで絞り込み
