@@ -303,7 +303,131 @@ function computeStats(groups, langs) {
 // HTML生成
 // ---------------------------------------------------------------------------
 
+// 投稿ペース統計を計算
+function computePostingStats(groups) {
+  const byMonth = {}; // "YYYY-MM" -> count
+  const byDay = {};   // "YYYY-MM-DD" -> count
+
+  groups.forEach(g => {
+    const primary = g.ja || g.en || Object.values(g)[0];
+    if (!primary || !primary.date) return;
+    const month = primary.date.slice(0, 7);
+    const day = primary.date.slice(0, 10);
+    byMonth[month] = (byMonth[month] || 0) + 1;
+    byDay[day] = (byDay[day] || 0) + 1;
+  });
+
+  const now = new Date();
+
+  // 月別: 今月から12ヶ月先まで（今月が左端、未来へ）
+  const months = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const m = d.getMonth() + 1;
+    const label = m === 1 ? `${d.getFullYear()}年1月` : `${m}月`;
+    months.push({
+      key: ym,
+      count: byMonth[ym] || 0,
+      label,
+      isFuture: i > 0,
+      isCurrent: i === 0,
+    });
+  }
+
+  // 日別: 今月の1日から月末まで
+  const days = [];
+  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  for (let day = 1; day <= lastDayOfMonth; day++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), day);
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isFuture = d > now && !(d.toDateString() === now.toDateString());
+    const isToday = d.toDateString() === now.toDateString();
+    const dayOfWeek = d.getDay();
+    days.push({
+      key: ymd,
+      count: byDay[ymd] || 0,
+      label: String(day),
+      isFuture,
+      isToday,
+      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+    });
+  }
+
+  // KPIs
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+  // 今週: 今週の月曜から今日まで（カレンダー週・月曜始まり）
+  const dayOfWeek = now.getDay(); // 0=日, 1=月, ..., 6=土
+  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  let thisWeekCount = 0;
+  for (let i = 0; i <= daysSinceMonday; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    thisWeekCount += byDay[ymd] || 0;
+  }
+
+  // 先週: 先週の月曜〜日曜
+  let lastWeekCount = 0;
+  for (let i = daysSinceMonday + 1; i <= daysSinceMonday + 7; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    lastWeekCount += byDay[ymd] || 0;
+  }
+
+  // 月平均（投稿実績のある月だけで計算）
+  const activeMonths = Object.keys(byMonth).filter(k => byMonth[k] > 0);
+  const totalAll = activeMonths.reduce((sum, k) => sum + byMonth[k], 0);
+  const avgPerMonth = activeMonths.length > 0 ? (totalAll / activeMonths.length).toFixed(1) : '0';
+
+  return {
+    months: months,
+    days: days,
+    kpi: {
+      thisMonth: byMonth[thisMonth] || 0,
+      lastMonth: byMonth[lastMonth] || 0,
+      thisWeek: thisWeekCount,
+      lastWeek: lastWeekCount,
+      avgPerMonth: avgPerMonth,
+    }
+  };
+}
+
 function renderHtml(groups, langs, stats) {
+  const postingStats = computePostingStats(groups);
+  const maxMonth = Math.max(1, ...postingStats.months.map(m => m.count));
+  const maxDay = Math.max(1, ...postingStats.days.map(d => d.count));
+
+  const monthBars = postingStats.months.map(m => {
+    const cls = [m.isCurrent ? 'current' : '', m.isFuture ? 'future' : ''].filter(Boolean).join(' ');
+    return `
+    <div class="chart-bar-item ${cls}" title="${m.key}: ${m.count}本${m.isFuture ? '（予定）' : ''}">
+      <div class="chart-bar-wrap">
+        <div class="chart-bar-value">${m.count || (m.isFuture ? '' : '0')}</div>
+        <div class="chart-bar ${m.count === 0 ? 'empty' : ''}" style="height: ${m.count / maxMonth * 100}%"></div>
+      </div>
+      <div class="chart-bar-label ${m.isCurrent ? 'current' : ''}">${m.label}</div>
+    </div>`;
+  }).join('');
+
+  const dayBars = postingStats.days.map(d => {
+    const cls = [
+      d.isToday ? 'today' : '',
+      d.isFuture ? 'future' : '',
+      d.isWeekend ? 'weekend' : '',
+    ].filter(Boolean).join(' ');
+    return `
+    <div class="chart-bar-item day-bar ${cls}" title="${d.key}: ${d.count}本${d.isFuture ? '（未来）' : ''}">
+      <div class="chart-bar-wrap">
+        <div class="chart-bar-value-small">${d.count || ''}</div>
+        <div class="chart-bar ${d.count === 0 ? 'empty' : ''} ${d.isFuture ? 'future-bar' : ''}" style="height: ${d.count / maxDay * 100}%"></div>
+      </div>
+      <div class="chart-bar-label">${d.label}</div>
+    </div>`;
+  }).join('');
+
   const langKpis = langs.map(lang => {
     const cfg = LANG_CONFIG[lang] || { label: lang, emoji: '🌐' };
     return { label: `${cfg.emoji} ${cfg.label}`, value: stats.byLang[lang] || 0, color: '#1565c0' };
@@ -326,7 +450,7 @@ function renderHtml(groups, langs, stats) {
   const catRows = Object.entries(stats.byCategory)
     .sort((a, b) => b[1].count - a[1].count)
     .map(([folder, info]) => `
-      <tr>
+      <tr class="cat-clickable" data-category="${escapeHtml(info.name)}" title="クリックでこのカテゴリの記事一覧を表示">
         <td>${escapeHtml(info.name)}</td>
         <td><code>${escapeHtml(folder)}</code></td>
         <td class="num">${info.count}</td>
@@ -441,6 +565,13 @@ function renderHtml(groups, langs, stats) {
   .cat-table th { background: #1a73e8; color: #fff; font-weight: 600; }
   .cat-table td.num { text-align: right; font-weight: 600; }
   .cat-table code { background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  .cat-table tbody tr.cat-clickable { cursor: pointer; transition: background 0.15s; }
+  .cat-table tbody tr.cat-clickable:hover { background: #e8f0fe; }
+  .cat-table tbody tr.cat-clickable td:first-child { color: #1a73e8; text-decoration: underline; }
+  .cat-filter-chip { display: none; align-items: center; gap: 6px; padding: 4px 10px; background: #e8f0fe; color: #1a73e8; border-radius: 12px; font-size: 12px; font-weight: 500; }
+  .cat-filter-chip.active { display: inline-flex; }
+  .cat-filter-chip .clear { cursor: pointer; font-weight: bold; padding: 0 2px; }
+  .cat-filter-chip .clear:hover { color: #d33; }
 
   /* ===== Data Table ===== */
   .data-wrap {
@@ -513,6 +644,71 @@ function renderHtml(groups, langs, stats) {
     color: #5f6368; font-style: italic;
   }
 
+  /* ===== Posting Pace Charts ===== */
+  .chart-section {
+    background: #fff; border-radius: 8px; padding: 24px;
+    margin-bottom: 20px; border: 1px solid #e0e0e0;
+  }
+  .chart-section h2 {
+    font-size: 16px; margin: 0 0 4px; color: #202124;
+  }
+  .chart-section .chart-sub {
+    font-size: 12px; color: #5f6368; margin: 0 0 16px;
+  }
+  .chart-bar-container {
+    display: flex; align-items: flex-end; gap: 6px;
+    height: 220px; margin: 12px 0;
+    padding: 0 4px;
+  }
+  .chart-bar-container.daily { gap: 3px; height: 160px; }
+  .chart-bar-item {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 4px; min-width: 0;
+  }
+  .chart-bar-wrap {
+    flex: 1; width: 100%; display: flex; flex-direction: column;
+    justify-content: flex-end; align-items: center; position: relative;
+  }
+  .chart-bar {
+    width: 80%; background: linear-gradient(180deg, #4285f4 0%, #1a73e8 100%);
+    border-radius: 3px 3px 0 0; min-height: 3px;
+    transition: opacity 0.15s;
+  }
+  .chart-bar-item:hover .chart-bar { opacity: 0.7; }
+  .chart-bar.empty { background: #e8eaed; opacity: 0.6; min-height: 2px; }
+  .chart-bar.future-bar { background: #f1f3f4; }
+  .chart-bar-value {
+    font-size: 11px; font-weight: 700; color: #1a73e8;
+    margin-bottom: 2px; min-height: 14px;
+  }
+  .chart-bar-value-small {
+    font-size: 9px; font-weight: 700; color: #1a73e8;
+    min-height: 12px;
+  }
+  .chart-bar-label {
+    font-size: 10px; color: #5f6368; white-space: nowrap;
+  }
+  .chart-bar-label.current { color: #1a73e8; font-weight: 700; }
+  /* 今月の強調 */
+  .chart-bar-item.current .chart-bar {
+    background: linear-gradient(180deg, #ff8a65 0%, #f4511e 100%);
+  }
+  /* 未来の月 */
+  .chart-bar-item.future .chart-bar { background: #e8eaed; opacity: 0.4; }
+  .chart-bar-item.future .chart-bar-label { color: #b0b0b0; }
+  /* 日別 */
+  .day-bar .chart-bar { width: 95%; }
+  .day-bar.weekend .chart-bar-label { color: #d33; }
+  .day-bar.today .chart-bar {
+    background: linear-gradient(180deg, #ff8a65 0%, #f4511e 100%);
+    min-height: 4px;
+  }
+  .day-bar.today .chart-bar-label {
+    color: #f4511e; font-weight: 700;
+  }
+  .day-bar.future .chart-bar { background: #f1f3f4; opacity: 0.5; }
+  .day-bar.future .chart-bar-label { color: #c0c0c0; }
+
   /* ===== Search ===== */
   .search-bar {
     margin-bottom: 16px; padding: 12px 16px;
@@ -537,6 +733,7 @@ function renderHtml(groups, langs, stats) {
 
   <div class="tabs">
     <div class="tab active" data-panel="dash">ダッシュボード</div>
+    <div class="tab" data-panel="pace">投稿ペース</div>
     <div class="tab" data-panel="data">記事一覧</div>
   </div>
 
@@ -554,6 +751,46 @@ function renderHtml(groups, langs, stats) {
     </div>
   </div>
 
+  <!-- ===== Posting Pace ===== -->
+  <div id="pace" class="panel">
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">今月の投稿</div>
+        <div class="kpi-value" style="color:#1a73e8">${postingStats.kpi.thisMonth}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">先月の投稿</div>
+        <div class="kpi-value" style="color:#5f6368">${postingStats.kpi.lastMonth}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">今週の投稿（月〜今日）</div>
+        <div class="kpi-value" style="color:#137333">${postingStats.kpi.thisWeek}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">先週の投稿</div>
+        <div class="kpi-value" style="color:#137333">${postingStats.kpi.lastWeek}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">月平均（実績ある月）</div>
+        <div class="kpi-value" style="color:#b06000">${postingStats.kpi.avgPerMonth}</div>
+      </div>
+    </div>
+
+    <div class="chart-section">
+      <h2>📅 月別投稿数</h2>
+      <p class="chart-sub">今月から12ヶ月先までの予定（オレンジ=今月）</p>
+      <div class="chart-bar-container">${monthBars}
+      </div>
+    </div>
+
+    <div class="chart-section">
+      <h2>📆 日別投稿数（今月）</h2>
+      <p class="chart-sub">${(() => { const [y, m] = postingStats.days[0].key.split('-'); return `${y}年${parseInt(m, 10)}月`; })()} 1日〜月末（オレンジ=今日）</p>
+      <div class="chart-bar-container daily">${dayBars}
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Data Table ===== -->
   <div id="data" class="panel">
     <div class="search-bar">
@@ -565,6 +802,10 @@ function renderHtml(groups, langs, stats) {
         <option value="📝 下書き">📝 下書き</option>
         <option value="⏰ 予約投稿">⏰ 予約投稿</option>
       </select>
+      <select id="categoryFilterSelect">
+        <option value="">全カテゴリ</option>
+      </select>
+      <span class="cat-filter-chip" id="catFilterChip">カテゴリ: <span id="catFilterLabel"></span><span class="clear" id="catFilterClear" title="クリア">×</span></span>
       <span class="row-count" id="rowCount"></span>
     </div>
     <div class="data-wrap">
@@ -605,7 +846,20 @@ function renderHtml(groups, langs, stats) {
   const searchInput = document.getElementById('searchInput');
   const statusFilter = document.getElementById('statusFilter');
   const rowCount = document.getElementById('rowCount');
+  const catFilterChip = document.getElementById('catFilterChip');
+  const catFilterLabel = document.getElementById('catFilterLabel');
+  const catFilterClear = document.getElementById('catFilterClear');
+  const categoryFilterSelect = document.getElementById('categoryFilterSelect');
   const rows = Array.from(document.querySelectorAll('#dataBody tr'));
+  let categoryFilter = '';
+
+  // 記事一覧のカテゴリ列からユニーク値を抽出してドロップダウンに投入
+  const uniqueCats = Array.from(new Set(rows.map(r => r.cells[3] ? r.cells[3].textContent.trim() : '').filter(Boolean))).sort();
+  uniqueCats.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    categoryFilterSelect.appendChild(opt);
+  });
 
   function applyFilter() {
     const q = searchInput.value.toLowerCase();
@@ -613,17 +867,52 @@ function renderHtml(groups, langs, stats) {
     let visible = 0;
     rows.forEach(row => {
       const text = row.textContent.toLowerCase();
+      const catCell = row.cells[3] ? row.cells[3].textContent.trim() : '';
       const matchQ = !q || text.includes(q);
       const matchS = !s || row.textContent.includes(s);
-      const show = matchQ && matchS;
+      const matchC = !categoryFilter || catCell === categoryFilter;
+      const show = matchQ && matchS && matchC;
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
     rowCount.textContent = visible + ' / ' + rows.length + ' 件';
+    if (categoryFilter) {
+      catFilterLabel.textContent = categoryFilter;
+      catFilterChip.classList.add('active');
+      if (categoryFilterSelect.value !== categoryFilter) categoryFilterSelect.value = categoryFilter;
+    } else {
+      catFilterChip.classList.remove('active');
+      if (categoryFilterSelect.value !== '') categoryFilterSelect.value = '';
+    }
   }
 
   searchInput.addEventListener('input', applyFilter);
   statusFilter.addEventListener('change', applyFilter);
+  categoryFilterSelect.addEventListener('change', () => {
+    categoryFilter = categoryFilterSelect.value;
+    applyFilter();
+  });
+  catFilterClear.addEventListener('click', () => {
+    categoryFilter = '';
+    applyFilter();
+  });
+
+  // カテゴリ行クリック → 記事一覧タブへ切替＋カテゴリで絞り込み
+  document.querySelectorAll('.cat-table tr.cat-clickable').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const raw = tr.dataset.category || '';
+      const tmp = document.createElement('textarea');
+      tmp.innerHTML = raw;
+      categoryFilter = tmp.value;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('.tab[data-panel="data"]').classList.add('active');
+      document.getElementById('data').classList.add('active');
+      applyFilter();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
   applyFilter();
 
   // ファイルパス クリックでコピー
