@@ -537,8 +537,8 @@ function renderHtml(groups, langs, stats) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YOLO MEDIA 記事管理ダッシュボード</title>
-<link rel="icon" type="image/png" href="assets/favicon.ico">
-<link rel="shortcut icon" type="image/png" href="assets/favicon.ico">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="shortcut icon" type="image/png" href="favicon.png">
 <style>
   * { box-sizing: border-box; }
   body {
