@@ -33,34 +33,21 @@ const LANG_CONFIG = {
   fr:        { label: 'フランス語',            emoji: '🇫🇷', priority: 13 },
 };
 
-const CANVA_DESIGN_MAP = {
-  635:  'DAHFgaUFgsk',
-  1430: 'DAHIB6_lxjY',
-  1428: 'DAHIBuXugAI',
-  1419: 'DAHHuWggikM',
-  1387: 'DAHHeJ5o8tA',
-  1386: 'DAHHd1bUUy8',
-  1383: 'DAHHdhWgLL8',
-  1369: 'DAHFtkB-LNA',
-  1353: 'DAHHcFimkOs',
-  642:  'DAHFgd-hJtk',
-  627:  'DAHFgaAOmIc',
-  1268: 'DAHHYXCjK2o',
-  1258: 'DAHHYAlgq0g',
-  1130: 'DAHG_9OGEV4',
-  1134: 'DAHG-mJiG1I',
-  1132: 'DAHG_pkblt4',
-  1126: 'DAHHEJTtruE',
-  1124: 'DAHHECvytRg',
-  1114: 'DAHGPkjXO44',
-  616:  'DAHFgCPp7zs',
-  600:  'DAHFf9Bk_OQ',
-  562:  'DAHFgDd1YLk',
-  553:  'DAHFfnojigE',
-  545:  'DAHFfcUS5Jw',
-  474:  'DAHE9-QF9-o',
-  517:  'DAHE9rXvmnY',
-};
+// Canva マッピングを外部 JSON から読み込む（編集しやすさのため）
+const CANVA_MAP_FILE = path.join(__dirname, 'canva-map.json');
+const CANVA_DESIGN_MAP = (() => {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CANVA_MAP_FILE, 'utf-8'));
+    const m = raw.mappings || {};
+    // キーを数値化（JSONでは文字列キーになるため）
+    const numKey = {};
+    Object.keys(m).forEach(k => { numKey[Number(k)] = m[k]; });
+    return numKey;
+  } catch (e) {
+    console.warn('[canva-map.json] 読み込み失敗、空マップで継続:', e.message);
+    return {};
+  }
+})();
 
 const STALE_DAYS = 180;
 const OUTPUT_DIR = path.join(__dirname, '..', 'docs');
@@ -230,9 +217,12 @@ function latestModified(g) {
 }
 
 function buildCanvaUrl(g) {
+  // 優先順: WPのcanva_url meta → canva-map.json (フォールバック)
   for (const lang of Object.keys(g)) {
     const post = g[lang];
-    if (post && CANVA_DESIGN_MAP[post.id]) {
+    if (!post) continue;
+    if (post.meta && post.meta.canva_url) return post.meta.canva_url;
+    if (CANVA_DESIGN_MAP[post.id]) {
       return `https://www.canva.com/design/${CANVA_DESIGN_MAP[post.id]}/view`;
     }
   }
@@ -319,10 +309,14 @@ function computePostingStats(groups) {
 
   const now = new Date();
 
-  // 月別: 今月から12ヶ月先まで（今月が左端、未来へ）
+  // 月別: 年度（4月始まり）の12ヶ月分を表示
+  // 現在月が4月以降ならその年の4月から、3月以前なら前年の4月から
+  const fiscalYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const fiscalStart = new Date(fiscalYear, 3, 1); // 4月1日
   const months = [];
+  const nowYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const d = new Date(fiscalYear, 3 + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const m = d.getMonth() + 1;
     const label = m === 1 ? `${d.getFullYear()}年1月` : `${m}月`;
@@ -330,30 +324,48 @@ function computePostingStats(groups) {
       key: ym,
       count: byMonth[ym] || 0,
       label,
-      isFuture: i > 0,
-      isCurrent: i === 0,
+      isFuture: ym > nowYM,
+      isCurrent: ym === nowYM,
+      isPast: ym < nowYM,
     });
   }
 
-  // 日別: 今月の1日から月末まで
-  const days = [];
-  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  for (let day = 1; day <= lastDayOfMonth; day++) {
-    const d = new Date(now.getFullYear(), now.getMonth(), day);
-    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const isFuture = d > now && !(d.toDateString() === now.toDateString());
-    const isToday = d.toDateString() === now.toDateString();
-    const dayOfWeek = d.getDay();
-    days.push({
-      key: ymd,
-      count: byDay[ymd] || 0,
-      label: String(day),
-      isFuture,
-      isToday,
-      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
-      dayOfWeek,
+  // 日別: 先月・今月・翌月のカレンダーを保持（前月/翌月切替対応）
+  function buildMonthDays(year, month0) {
+    const out = [];
+    const lastDay = new Date(year, month0 + 1, 0).getDate();
+    for (let day = 1; day <= lastDay; day++) {
+      const d = new Date(year, month0, day);
+      const ymd = `${year}-${String(month0 + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const isFuture = d > now && !(d.toDateString() === now.toDateString());
+      const isToday = d.toDateString() === now.toDateString();
+      const dayOfWeek = d.getDay();
+      out.push({
+        key: ymd,
+        count: byDay[ymd] || 0,
+        label: String(day),
+        isFuture,
+        isToday,
+        isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+        dayOfWeek,
+      });
+    }
+    return out;
+  }
+  const dayMonths = [];
+  for (let offset = -1; offset <= 1; offset++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    dayMonths.push({
+      ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      year: d.getFullYear(),
+      monthNum: d.getMonth() + 1,
+      label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+      isCurrent: offset === 0,
+      offset,
+      days: buildMonthDays(d.getFullYear(), d.getMonth()),
     });
   }
+  const days = dayMonths.find(m => m.isCurrent).days;
 
   // KPIs
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -386,6 +398,7 @@ function computePostingStats(groups) {
   return {
     months: months,
     days: days,
+    dayMonths: dayMonths,
     kpi: {
       thisMonth: byMonth[thisMonth] || 0,
       lastMonth: byMonth[lastMonth] || 0,
@@ -413,34 +426,43 @@ function renderHtml(groups, langs, stats) {
     </div>`;
   }).join('');
 
-  // 日別投稿数: カレンダーグリッド形式
+  // 日別投稿数: 先月・今月・翌月のカレンダーを生成 (JSで切替表示)
   const weekHeaders = ['日', '月', '火', '水', '木', '金', '土'];
   const dayCalHeader = weekHeaders.map((w, i) => {
     const cls = i === 0 ? 'weekend-sun' : i === 6 ? 'weekend-sat' : '';
     return `<div class="day-cal-head ${cls}">${w}</div>`;
   }).join('');
-  const startWeekday = postingStats.days[0] ? postingStats.days[0].dayOfWeek : 0;
-  const leadingEmpties = Array(startWeekday).fill('<div class="day-cal-cell empty-cell"></div>').join('');
-  const dayCalCells = postingStats.days.map(d => {
-    const hasPosts = d.count > 0;
-    const cls = [
-      'day-cal-cell',
-      d.isToday ? 'today' : '',
-      d.isFuture ? 'future' : '',
-      hasPosts ? 'has-posts' : '',
-      hasPosts ? 'clickable' : '',
-    ].filter(Boolean).join(' ');
-    const dayNumCls = d.dayOfWeek === 0 ? 'weekend-sun' : d.dayOfWeek === 6 ? 'weekend-sat' : '';
-    const titleAttr = hasPosts
-      ? `${d.key}: ${d.count}本${d.isFuture ? '（予定）' : ''} — クリックで記事一覧表示`
-      : `${d.key}: ${d.count}本${d.isFuture ? '（予定/未来）' : ''}`;
-    return `<div class="${cls}" data-date="${d.key}" title="${titleAttr}">
-      <div class="day-num ${dayNumCls}">${d.label}</div>
-      <div class="day-count">${hasPosts ? d.count : ''}</div>
-    </div>`;
-  }).join('');
+  function renderCalendarFor(monthData) {
+    const startWeekday = monthData.days[0] ? monthData.days[0].dayOfWeek : 0;
+    const leadingEmpties = Array(startWeekday).fill('<div class="day-cal-cell empty-cell"></div>').join('');
+    const cells = monthData.days.map(d => {
+      const hasPosts = d.count > 0;
+      const cls = [
+        'day-cal-cell',
+        d.isToday ? 'today' : '',
+        d.isFuture ? 'future' : '',
+        hasPosts ? 'has-posts' : '',
+        hasPosts ? 'clickable' : '',
+      ].filter(Boolean).join(' ');
+      const dayNumCls = d.dayOfWeek === 0 ? 'weekend-sun' : d.dayOfWeek === 6 ? 'weekend-sat' : '';
+      const titleAttr = hasPosts
+        ? `${d.key}: ${d.count}本${d.isFuture ? '（予定）' : ''} — クリックで記事一覧表示`
+        : `${d.key}: ${d.count}本${d.isFuture ? '（予定/未来）' : ''}`;
+      return `<div class="${cls}" data-date="${d.key}" title="${titleAttr}">
+        <div class="day-num ${dayNumCls}">${d.label}</div>
+        <div class="day-count">${hasPosts ? d.count : ''}</div>
+      </div>`;
+    }).join('');
+    return `<div class="day-calendar" data-ym="${monthData.ym}"${monthData.isCurrent ? '' : ' style="display:none"'}>${dayCalHeader}${leadingEmpties}${cells}</div>`;
+  }
+  const allCalendars = postingStats.dayMonths.map(renderCalendarFor).join('');
   const dayCalendar = `
-    <div class="day-calendar">${dayCalHeader}${leadingEmpties}${dayCalCells}</div>
+    <div class="day-cal-nav">
+      <button type="button" class="day-cal-prev" id="dayCalPrev" title="前月">◀</button>
+      <span class="day-cal-current-label" id="dayCalCurrentLabel"></span>
+      <button type="button" class="day-cal-next" id="dayCalNext" title="翌月">▶</button>
+    </div>
+    ${allCalendars}
   `;
 
   const langKpis = langs.map(lang => {
@@ -747,6 +769,11 @@ function renderHtml(groups, langs, stats) {
   .day-cal-cell.today.has-posts .day-count { color: #f4511e; }
   .day-cal-cell.clickable { cursor: pointer; }
   .day-cal-cell.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(26,115,232,0.18); border-color: #1a73e8; }
+  .day-cal-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
+  .day-cal-nav button { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 14px; color: #1a73e8; transition: background 0.15s; }
+  .day-cal-nav button:hover { background: #e8f0fe; }
+  .day-cal-nav button:disabled { color: #b0b0b0; cursor: not-allowed; background: #f8f9fa; }
+  .day-cal-current-label { font-size: 14px; font-weight: 600; color: #202124; min-width: 110px; text-align: center; }
   .date-filter-chip { display: none; align-items: center; gap: 6px; padding: 4px 10px; background: #fef7e0; color: #b06000; border-radius: 12px; font-size: 12px; font-weight: 500; }
   .date-filter-chip.active { display: inline-flex; }
   .date-filter-chip .clear { cursor: pointer; font-weight: bold; padding: 0 2px; }
@@ -852,14 +879,14 @@ function renderHtml(groups, langs, stats) {
 
     <div class="chart-section">
       <h2>📅 月別投稿数</h2>
-      <p class="chart-sub">今月から12ヶ月先までの予定（オレンジ=今月）</p>
+      <p class="chart-sub">${(() => { const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; return `${fy}年度（${fy}年4月〜${fy + 1}年3月）`; })()}（オレンジ=今月 / グレー=過去 / 薄=未来）</p>
       <div class="chart-bar-container">${monthBars}
       </div>
     </div>
 
     <div class="chart-section">
       <h2>📆 日別投稿数（今月）</h2>
-      <p class="chart-sub">${(() => { const [y, m] = postingStats.days[0].key.split('-'); return `${y}年${parseInt(m, 10)}月`; })()}（オレンジ枠=今日 / 青=投稿済 / 黄=予定）</p>
+      <p class="chart-sub">前月・今月・翌月を切替表示（オレンジ枠=今日 / 青=投稿済 / 黄=予定）</p>
       ${dayCalendar}
     </div>
   </div>
@@ -1015,6 +1042,29 @@ function renderHtml(groups, langs, stats) {
     dateFrom = ''; dateTo = '';
     applyFilter();
   });
+
+  // 日別カレンダー: 前月/翌月切替
+  (function setupCalendarNav() {
+    const calendars = Array.from(document.querySelectorAll('.day-calendar'));
+    if (!calendars.length) return;
+    const prevBtn = document.getElementById('dayCalPrev');
+    const nextBtn = document.getElementById('dayCalNext');
+    const label = document.getElementById('dayCalCurrentLabel');
+    let idx = calendars.findIndex(c => c.style.display !== 'none');
+    if (idx < 0) idx = Math.floor(calendars.length / 2);
+    function showAt(i) {
+      idx = Math.max(0, Math.min(calendars.length - 1, i));
+      calendars.forEach((c, j) => { c.style.display = j === idx ? '' : 'none'; });
+      const ym = calendars[idx].dataset.ym || '';
+      const m = ym.match(/^(\d{4})-(\d{2})$/);
+      label.textContent = m ? (m[1] + '年' + parseInt(m[2], 10) + '月') : ym;
+      prevBtn.disabled = idx === 0;
+      nextBtn.disabled = idx === calendars.length - 1;
+    }
+    prevBtn.addEventListener('click', () => showAt(idx - 1));
+    nextBtn.addEventListener('click', () => showAt(idx + 1));
+    showAt(idx);
+  })();
 
   // カレンダーセルクリック → 記事一覧タブへ切替＋その日付の単日範囲で絞り込み
   document.querySelectorAll('.day-cal-cell.clickable').forEach(cell => {
